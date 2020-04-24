@@ -32,7 +32,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 import static de.robv.android.xposed.XposedHelpers.findAndHookMethod;
 
 public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
-    private static boolean DYNAMIC = false;
+    private static boolean DYNAMIC = true;
 
     private static List<String> TARGET = Arrays.asList(
             "com.baidu.youavideo"
@@ -46,19 +46,34 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
             FileUtils.deleteDirectory(baseDir);
             baseDir.mkdirs();
 
-            final XC_MethodHook xc_methodHook = new XC_MethodHook() {
+            final XC_MethodHook undress = new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                    Context context = (Context) param.args[2];
+                    Context context = null;
+
+                    switch (param.method.getName()) {
+                        case "attach":
+                            context = (Context) param.args[0];
+                            break;
+                        case "newApplication":
+                            context = (Context) param.args[2];
+                            break;
+                    }
+
+                    if (context == null) {
+                        return;
+                    }
+
+                    log(lpparam.packageName + " undress ---> " + context + ", " + context.getClassLoader() + "@code" + context.getClassLoader().hashCode());
 
                     if (DYNAMIC) {
                         String path = context.createPackageContext("dev.jasontsang.baiduphotodownloader", Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY).getPackageCodePath();
                         PathClassLoader pathClassLoader = new PathClassLoader(path, XposedBridge.BOOTCLASSLOADER);
-                        Class<?> undressClass = Class.forName("dev.jasontsang.baiduphotodownloader.BaiduPhotoDownloader", true, pathClassLoader);
-                        Object undress = undressClass.newInstance();
-                        Method handleLoadPackageMethod = undressClass.getDeclaredMethod("handleLoadPackage", lpparam.getClass(), Context.class);
+                        Class<?> baiduPhotoDownloaderClass = Class.forName("dev.jasontsang.baiduphotodownloader.BaiduPhotoDownloader", true, pathClassLoader);
+                        Object baiduPhotoDownloader = baiduPhotoDownloaderClass.newInstance();
+                        Method handleLoadPackageMethod = baiduPhotoDownloaderClass.getDeclaredMethod("handleLoadPackage", lpparam.getClass(), Context.class);
                         handleLoadPackageMethod.setAccessible(true);
-                        handleLoadPackageMethod.invoke(undress, lpparam, context);
+                        handleLoadPackageMethod.invoke(baiduPhotoDownloader, lpparam, context);
                     } else {
                         handleLoadPackage(lpparam, context);
                     }
@@ -66,13 +81,13 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
             };
 
             try {
-                findAndHookMethod("android.app.Instrumentation", lpparam.classLoader, "newApplication", ClassLoader.class, String.class, Context.class, xc_methodHook);
+                findAndHookMethod("android.app.Application", lpparam.classLoader, "attach", Context.class, undress);
             } catch (Throwable throwable) {
                 log(throwable.getMessage());
             }
 
             try {
-                findAndHookMethod("android.app.Application", lpparam.classLoader, "attach", Context.class, xc_methodHook);
+                findAndHookMethod("android.app.Instrumentation", lpparam.classLoader, "newApplication", ClassLoader.class, String.class, Context.class, undress);
             } catch (Throwable throwable) {
                 log(throwable.getMessage());
             }
@@ -106,8 +121,6 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
     private void youaVideo(final XC_LoadPackage.LoadPackageParam lpparam,
                            final Context context) throws Throwable {
         final ClassLoader classLoader = context.getClassLoader();
-
-        Toast.makeText(context, "hooked", Toast.LENGTH_LONG).show();
 
         findAndHookMethod("com.google.android.material.bottomsheet.BottomSheetDialog", classLoader, "wrapInBottomSheet", int.class, View.class, ViewGroup.LayoutParams.class, new XC_MethodHook() {
             @SuppressLint("ResourceType")
