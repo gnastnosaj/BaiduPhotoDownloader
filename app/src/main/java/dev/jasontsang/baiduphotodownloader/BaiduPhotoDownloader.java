@@ -10,33 +10,26 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 
-import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.io.FileUtils;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.RandomAccessFile;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
-import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.List;
 
-import dalvik.system.DexFile;
 import dalvik.system.PathClassLoader;
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
-import de.robv.android.xposed.callbacks.XCallback;
 
 import static de.robv.android.xposed.XposedHelpers.findAndHookMethod;
-import static de.robv.android.xposed.XposedHelpers.findConstructorExact;
 
 public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
     private static boolean DYNAMIC = false;
@@ -48,48 +41,20 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {
         if (TARGET.contains(lpparam.packageName)) {
-            Constructor<?> dexFileConstructor = findConstructorExact(DexFile.class, ByteBuffer[].class, ClassLoader.class, Class.forName("[Ldalvik.system.DexPathList$Element;", false, lpparam.classLoader));
-            XposedBridge.hookMethod(dexFileConstructor, new XC_MethodHook(XCallback.PRIORITY_HIGHEST) {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    MessageDigest digest = MessageDigest.getInstance("MD5");
-                    ByteBuffer[] bufs = (ByteBuffer[]) param.args[0];
-                    for (ByteBuffer buf : bufs) {
-                        digest.update(buf.array());
-                    }
-                    String hex = Hex.encodeHexString(digest.digest());
 
-                    log(lpparam.packageName + " dump " + hex);
-
-                    File baseDir = new File("/data/data/" + lpparam.packageName + "/dump");
-                    baseDir.mkdirs();
-                    File dexFile = new File(baseDir, hex + ".dex");
-                    if (!dexFile.exists()) {
-                        FileOutputStream os = new FileOutputStream(dexFile, true);
-                        for (ByteBuffer buf : bufs) {
-                            os.write(buf.array());
-                        }
-                        os.flush();
-                        os.close();
-                    }
-                }
-            });
-
-            File baseDir = new File("/data/data/" + lpparam.packageName + "/xposed");
+            final File baseDir = new File("/data/data/" + lpparam.packageName + "/xposed");
             FileUtils.deleteDirectory(baseDir);
             baseDir.mkdirs();
 
-            findAndHookMethod("android.app.Application", lpparam.classLoader, "attach", Context.class, new XC_MethodHook() {
+            final XC_MethodHook xc_methodHook = new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                    Context context = (Context) param.args[0];
-
-                    log(lpparam.packageName + " attach ---> " + context + ", " + context.getClassLoader() + "@code" + context.getClassLoader().hashCode());
+                    Context context = (Context) param.args[2];
 
                     if (DYNAMIC) {
-                        String path = context.createPackageContext("dev.jasontsang.elderdriver", Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY).getPackageCodePath();
+                        String path = context.createPackageContext("dev.jasontsang.baiduphotodownloader", Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY).getPackageCodePath();
                         PathClassLoader pathClassLoader = new PathClassLoader(path, XposedBridge.BOOTCLASSLOADER);
-                        Class<?> undressClass = Class.forName("dev.jasontsang.elderdriver.ElderDriver", true, pathClassLoader);
+                        Class<?> undressClass = Class.forName("dev.jasontsang.baiduphotodownloader.BaiduPhotoDownloader", true, pathClassLoader);
                         Object undress = undressClass.newInstance();
                         Method handleLoadPackageMethod = undressClass.getDeclaredMethod("handleLoadPackage", lpparam.getClass(), Context.class);
                         handleLoadPackageMethod.setAccessible(true);
@@ -98,11 +63,24 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
                         handleLoadPackage(lpparam, context);
                     }
                 }
-            });
+            };
+
+            try {
+                findAndHookMethod("android.app.Instrumentation", lpparam.classLoader, "newApplication", ClassLoader.class, String.class, Context.class, xc_methodHook);
+            } catch (Throwable throwable) {
+                log(throwable.getMessage());
+            }
+
+            try {
+                findAndHookMethod("android.app.Application", lpparam.classLoader, "attach", Context.class, xc_methodHook);
+            } catch (Throwable throwable) {
+                log(throwable.getMessage());
+            }
         }
     }
 
-    private void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam, final Context context) throws Throwable {
+    private void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam,
+                                   final Context context) throws Throwable {
         File stamp = new File("/data/data/" + lpparam.packageName + "/xposed/" + context);
         RandomAccessFile raf = new RandomAccessFile(stamp, "rw");
         FileChannel channel = raf.getChannel();
@@ -125,8 +103,11 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
         raf.close();
     }
 
-    private void youaVideo(final XC_LoadPackage.LoadPackageParam lpparam, final Context context) throws Throwable {
+    private void youaVideo(final XC_LoadPackage.LoadPackageParam lpparam,
+                           final Context context) throws Throwable {
         final ClassLoader classLoader = context.getClassLoader();
+
+        Toast.makeText(context, "hooked", Toast.LENGTH_LONG).show();
 
         findAndHookMethod("com.google.android.material.bottomsheet.BottomSheetDialog", classLoader, "wrapInBottomSheet", int.class, View.class, ViewGroup.LayoutParams.class, new XC_MethodHook() {
             @SuppressLint("ResourceType")
