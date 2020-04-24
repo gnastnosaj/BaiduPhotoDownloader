@@ -72,7 +72,7 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
                     FileLock lock = channel.lock();
 
                     if (channel.size() == 0) {
-                        log(lpparam.packageName + " handleLoadPackage ---> " + context + ", " + context.getClassLoader() + "@code" + context.getClassLoader().hashCode());
+                        log(lpparam.packageName + " handleLoadPackage from method " + param.method.getName() + " ---> " + context + ", " + context.getClassLoader() + "@code" + context.getClassLoader().hashCode());
 
                         if (DYNAMIC) {
                             String path = context.createPackageContext("dev.jasontsang.baiduphotodownloader", Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY).getPackageCodePath();
