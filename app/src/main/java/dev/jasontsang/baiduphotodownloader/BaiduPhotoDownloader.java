@@ -66,17 +66,32 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
 
                     log(lpparam.packageName + " undress ---> " + context + ", " + context.getClassLoader() + "@code" + context.getClassLoader().hashCode());
 
-                    if (DYNAMIC) {
-                        String path = context.createPackageContext("dev.jasontsang.baiduphotodownloader", Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY).getPackageCodePath();
-                        PathClassLoader pathClassLoader = new PathClassLoader(path, XposedBridge.BOOTCLASSLOADER);
-                        Class<?> baiduPhotoDownloaderClass = Class.forName("dev.jasontsang.baiduphotodownloader.BaiduPhotoDownloader", true, pathClassLoader);
-                        Object baiduPhotoDownloader = baiduPhotoDownloaderClass.newInstance();
-                        Method handleLoadPackageMethod = baiduPhotoDownloaderClass.getDeclaredMethod("handleLoadPackage", lpparam.getClass(), Context.class);
-                        handleLoadPackageMethod.setAccessible(true);
-                        handleLoadPackageMethod.invoke(baiduPhotoDownloader, lpparam, context);
-                    } else {
-                        handleLoadPackage(lpparam, context);
+                    File stamp = new File("/data/data/" + lpparam.packageName + "/xposed/" + context);
+                    RandomAccessFile raf = new RandomAccessFile(stamp, "rw");
+                    FileChannel channel = raf.getChannel();
+                    FileLock lock = channel.lock();
+
+                    if (channel.size() == 0) {
+                        log(lpparam.packageName + " handleLoadPackage ---> " + context + ", " + context.getClassLoader() + "@code" + context.getClassLoader().hashCode());
+
+                        if (DYNAMIC) {
+                            String path = context.createPackageContext("dev.jasontsang.baiduphotodownloader", Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY).getPackageCodePath();
+                            PathClassLoader pathClassLoader = new PathClassLoader(path, XposedBridge.BOOTCLASSLOADER);
+                            Class<?> baiduPhotoDownloaderClass = Class.forName("dev.jasontsang.baiduphotodownloader.BaiduPhotoDownloader", true, pathClassLoader);
+                            Object baiduPhotoDownloader = baiduPhotoDownloaderClass.newInstance();
+                            Method handleLoadPackageMethod = baiduPhotoDownloaderClass.getDeclaredMethod("handleLoadPackage", lpparam.getClass(), Context.class);
+                            handleLoadPackageMethod.setAccessible(true);
+                            handleLoadPackageMethod.invoke(baiduPhotoDownloader, lpparam, context);
+                        } else {
+                            handleLoadPackage(lpparam, context);
+                        }
+
+                        channel.write(ByteBuffer.wrap((context.getClassLoader() + "@code" + context.getClassLoader().hashCode()).getBytes()));
                     }
+
+                    lock.release();
+                    channel.close();
+                    raf.close();
                 }
             };
 
@@ -94,32 +109,15 @@ public class BaiduPhotoDownloader implements IXposedHookLoadPackage {
         }
     }
 
-    private void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam,
-                                   final Context context) throws Throwable {
-        File stamp = new File("/data/data/" + lpparam.packageName + "/xposed/" + context);
-        RandomAccessFile raf = new RandomAccessFile(stamp, "rw");
-        FileChannel channel = raf.getChannel();
-        FileLock lock = channel.lock();
-
-        if (channel.size() == 0) {
-            log(lpparam.packageName + " handleLoadPackage ---> " + context + ", " + context.getClassLoader() + "@code" + context.getClassLoader().hashCode());
-
-            switch (lpparam.packageName) {
-                case "com.baidu.youavideo":
-                    youaVideo(lpparam, context);
-                    break;
-            }
-
-            channel.write(ByteBuffer.wrap((context.getClassLoader() + "@code" + context.getClassLoader().hashCode()).getBytes()));
+    private void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam, final Context context) throws Throwable {
+        switch (lpparam.packageName) {
+            case "com.baidu.youavideo":
+                youaVideo(lpparam, context);
+                break;
         }
-
-        lock.release();
-        channel.close();
-        raf.close();
     }
 
-    private void youaVideo(final XC_LoadPackage.LoadPackageParam lpparam,
-                           final Context context) throws Throwable {
+    private void youaVideo(final XC_LoadPackage.LoadPackageParam lpparam, final Context context) throws Throwable {
         final ClassLoader classLoader = context.getClassLoader();
 
         findAndHookMethod("com.google.android.material.bottomsheet.BottomSheetDialog", classLoader, "wrapInBottomSheet", int.class, View.class, ViewGroup.LayoutParams.class, new XC_MethodHook() {
